@@ -54,15 +54,16 @@ const reducer = (state = initialState, action) => {
   }
 };
 
-const createStore = reducer => {
+const createStore = (reducer, middleware) => {
   let state = reducer(undefined, { type: "@@redux/init" });
   const listeners = [];
-  return {
+  const coreDispatch = action => {
+    state = reducer(state, action);
+    listeners.forEach(listener => listener(state));
+  };
+  const store = {
     getState: () => state,
-    dispatch: action => {
-      state = reducer(state, action);
-      listeners.forEach(listener => listener(state));
-    },
+    dispatch: coreDispatch,
     subscribe: listener => {
       listeners.push(listener);
       return () => {
@@ -71,13 +72,49 @@ const createStore = reducer => {
       };
     }
   };
+  if (middleware) {
+    store.dispatch = middleware({
+      dispatch: coreDispatch,
+      getState: store.getState
+    })(coreDispatch);
+  }
+  return store;
 };
 
 ///////////////
 // Our store //
 ///////////////
 
-const store = createStore(reducer);
+const delayMiddleware = () => next => action => {
+  setTimeout(() => {
+    next(action);
+  }, 1);
+};
+
+const loggingMiddleware = ({ getState }) => next => action => {
+  console.info("before", getState());
+  console.info("action", action);
+  const result = next(action);
+  console.info("after", getState());
+  return result;
+};
+
+const applyMiddleware = (...middlewares) => store => {
+  if (middlewares.length === 0) {
+    return dispatch => dispatch;
+  }
+  if (middlewares.length === 1) {
+    return middlewares[0](store);
+  }
+  const boundMiddlewares = middlewares.map(middleware => middleware(store));
+
+  return boundMiddlewares.reduce((a, b) => next => a(b(next)));
+};
+
+const store = createStore(
+  reducer,
+  applyMiddleware(delayMiddleware, loggingMiddleware)
+);
 
 ////////////////////
 // Our components //
